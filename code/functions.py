@@ -16,57 +16,20 @@ import h5py
 from scipy import optimize
 import gc
 
-def get_cv_cases(key):
-  with open(os.getcwd() + f'/{key}_cases.txt', 'r') as file:
-    lines = file.readlines()
 
-  cv_dict = {}
-  for i, line in enumerate(lines):
-    parts = line.strip().split(';')
-
-    train_size = int(parts[0].split('=')[1].strip())
-    val_size = int(parts[1].split('=')[1].strip())
-    
-    kernel_size = int(parts[2].split('=')[1].strip())
-
-    nodes_part = parts[3].split('=')[1].strip()
-    nodes = list(map(int, nodes_part.split(',')))
-    
-    activation = str(parts[4].split('=')[1].strip())
-    batch_size = int(parts[5].split('=')[1].strip())
-    lr = float(parts[6].split('=')[1].strip())
-    min_lr = float(parts[7].split('=')[1].strip())
-    
-    cv_dict[f'{i+1}'] = {'train_size':train_size, 'val_size':val_size, 'kernel_size':kernel_size,
-                           'nodes':nodes, 'activation':activation, 'batch_size':batch_size,
-                           'lr':lr, 'min_lr':min_lr}
-    
-    if key == 'lstm': 
-      ae_model = int(parts[10].split('=')[1].strip())
-      lgs_part = parts[11].split('=')[1].strip() 
-      cv_dict[f'{i+1}']['look_back'] = int(parts[8].split('=')[1].strip()) 
-      cv_dict[f'{i+1}']['look_fwd'] = int(parts[9].split('=')[1].strip())
-      cv_dict[f'{i+1}']['ae_model'] = '{:02d}'.format(ae_model)
-      cv_dict[f'{i+1}']['lgs'] = list(map(float, lgs_part.split(',')))
-      cv_dict[f'{i+1}']['dropout'] = float(parts[12].split('=')[1].strip())
-      cv_dict[f'{i+1}']['stride'] = int(parts[13].split('=')[1].strip())
-      cv_dict[f'{i+1}']['offset'] = int(parts[14].split('=')[1].strip())
-      
-  return cv_dict
-
-  
-  
+# LOAD COORDINATES 
 def load_xzt_long():
-  with h5py.File('/afs/crc.nd.edu/user/l/lmenical/Private/pinn2/application/data/RB_Dec18.mat', 'r') as mat_file:
+  with h5py.File('RB_Data.mat', 'r') as mat_file:
   
     x = mat_file['xg'][:].flatten()
     z = mat_file['zg'][:].flatten()
     t = mat_file['time'][:].flatten()
     
   return x, z, t
-  
+
+# LOAD DNS DATA
 def load_uwpT_long():
-  with h5py.File('/afs/crc.nd.edu/user/l/lmenical/Private/pinn2/application/data/RB_Dec18.mat', 'r') as mat_file:
+  with h5py.File('RB_Data.mat', 'r') as mat_file:
   
     u = mat_file['u'][:]
     w = mat_file['w'][:]
@@ -79,10 +42,11 @@ def load_uwpT_long():
   
   x, z, t = load_xzt_long()
   return uwpT, x, z, t
-    
+
+# LOAD PHYSICAL CONSTANTS
 def load_constants_long():
   const_dict = {}
-  with h5py.File('/afs/crc.nd.edu/user/l/lmenical/Private/pinn2/application/data/RB_Dec18.mat', 'r') as mat_file:
+  with h5py.File('RB_Data.mat', 'r') as mat_file:
     for key, value in mat_file.items():
       if (len(value[:].flatten()) == 1):
         try:
@@ -92,6 +56,7 @@ def load_constants_long():
       
   return const_dict
 
+# EXTRACT CONSTANTS
 def get_model_constants(const_dict):
   _, z, _ = load_xzt_long()
   try:
@@ -107,7 +72,8 @@ def get_model_constants(const_dict):
   Ra = (const_dict['alpha'][0,0]*delta_T[0,0]*const_dict['g'][0,0]*Lz) / (const_dict['visco'][0,0] * const_dict['kappa'][0,0])
    
   return Uf[0,0], P[0,0], const_dict['T_bot'][0,0], const_dict['T_top'][0,0], np.array(Pr, np.float32), np.array(Ra, np.float32)
- 
+
+# NONDIMENSIONALIZE
 def nondim(U_pred, Uf, P, T_h, T_0):
   u, w, p, T = U_pred[...,0,tf.newaxis], U_pred[...,1,tf.newaxis], U_pred[...,2,tf.newaxis], U_pred[...,3,tf.newaxis]
   
@@ -116,7 +82,8 @@ def nondim(U_pred, Uf, P, T_h, T_0):
   T = (T-T_0) / (T_h-T_0) - 0.5 
   return u, w, p, T
 
-  
+
+# HELPER FUNCTIONS TO GENERATE dx, dz, dt
 def get_grads(x, z, const_dict, Uf, offset):
   try:
     Lz = z[-1] - z[0]
@@ -136,8 +103,7 @@ def get_grads(x, z, const_dict, Uf, offset):
   return tf.cast(dx, tf.float32), tf.cast(dz, tf.float32), tf.cast(dt, tf.float32) 
    
    
-
-
+# LOAD TRAIN-VAL DATA SPLIT
 def load_data(train_size, val_size, Uf, P, T_h, T_0, offset):
   data_dim, x, z, t = load_uwpT_long() 
 
@@ -147,12 +113,12 @@ def load_data(train_size, val_size, Uf, P, T_h, T_0, offset):
   data_train = data[:train_size]
   data_val = data[train_size:(train_size+val_size)]
   
-  return np.array(data_train, dtype=np.float32), np.array(data_val, dtype=np.float32), x, z, t #, mins, maxs
+  return np.array(data_train, dtype=np.float32), np.array(data_val, dtype=np.float32), x, z, t
   
-
+# LOAD DATA FOR AE TRAINING
 def load_ae_data(train_size, val_size, batch_size, Uf, P, T_h, T_0, offset): 
 
-  data_train, data_val, x, z, _ = load_data(train_size, val_size, Uf, P, T_h, T_0, offset)
+  data_train, data_val, x, z, t = load_data(train_size, val_size, Uf, P, T_h, T_0, offset)
   
   data_train_tf = tf.data.Dataset.from_tensor_slices((data_train, data_train))
   data_train_tf = data_train_tf.shuffle(buffer_size=train_size)
@@ -160,12 +126,11 @@ def load_ae_data(train_size, val_size, batch_size, Uf, P, T_h, T_0, offset):
   
   data_val_tf = tf.data.Dataset.from_tensor_slices((data_val, data_val))
   data_val_tf = data_val_tf.batch(batch_size, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
-  del data_train, data_val
-  gc.collect()
 
   return data_train_tf, data_val_tf, x, z
 
 
+# BUILD CAE
 def build_ae(nodes_enc, kernel_size, activation):
   nodes_dec = list(reversed(nodes_enc))
   inputs = Input(shape=(256,256,4), name='inputs')
@@ -186,8 +151,8 @@ def build_ae(nodes_enc, kernel_size, activation):
   return tf.keras.Model(inputs, x, name='Autoencoder')
 
   
-def get_ae_layers(ae_path_model):
-  autoencoder = tf.keras.models.load_model(ae_path_model)
+def get_ae_layers():
+  autoencoder = tf.keras.models.load_model('ae.keras')
 
   enc_layers = []
   dec_layers = []
@@ -198,53 +163,20 @@ def get_ae_layers(ae_path_model):
       dec_layers.append(l)
         
   return enc_layers, dec_layers
-  
-def build_ae_encoder(ae_path_model):
-  enc_layers, _ = get_ae_layers(ae_path_model)
+
+# BUILD SPATIAL ENCODER TO REDUCE DIMENSION OF INPUT SEQUENCES TO PI-CRNN
+def build_ae_encoder():
+  enc_layers, _ = get_ae_layers()
   inputs = Input(shape=(None,256,256,4), name='inputs')
   x_enc = inputs
   for l in enc_layers: x_enc = TimeDistributed(l, name=l.name)(x_enc)
   return tf.keras.Model(inputs, x_enc, name='AE_Encoder')
    
 
-  
-def load_esn_data(train_size, val_size, look_b, batch_size, stride, Uf, P, T_h, T_0, ae_path_model, offset): 
-  
-  ae_encoder = build_ae_encoder(ae_path_model)
-  data_train, data_val, x, z, _ = load_data(train_size, val_size, Uf, P, T_h, T_0, offset)  
-  data = np.concatenate((data_train, data_val), axis=0)
-  
-  @tf.function(input_signature=[tf.TensorSpec(shape=[1, look_b, 256, 256, 4], dtype=tf.float32)])
-    def compress_in(x):
-      return ae_encoder(x)  
-     
-  input_data, output_data = [], []
-  for t in range(look_b, train_size):
-    data_temp = data[(t-look_b):t,...]
-    input_temp = compress_in(tf.expand_dims(data_temp[::stride], axis=0))
-    input_data.append(input_temp[0]) 
-    output_data.append(data[t,...])
-  
-  input_data, output_data = np.array(input_data, np.float32), np.array(output_data, np.float32)   
-  data_train_tf = tf.data.Dataset.from_tensor_slices((input_data, output_data))                                 
-  data_train_tf = data_train_tf.batch(batch_size, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
-  
-  input_data, output_data = [], []
-  for t in range(train_size+look_b, train_size+val_size):
-    data_temp = data[(t-look_b):t,...]
-    input_temp = compress_data(ae_encoder, np.expand_dims(data_temp[::stride], axis=0))
-    input_data.append(input_temp[0]) 
-    output_data.append(data[t,...])
-
-  input_data, output_data = np.array(input_data, np.float32), np.array(output_data, np.float32)   
-  data_val_tf = tf.data.Dataset.from_tensor_slices((input_data, output_data))                                 
-  data_val_tf = data_val_tf.batch(batch_size, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
-
-  return data_train_tf, data_val_tf, x, z
-
-def load_lstm_data(train_size, val_size, look_b, look_f, stride, Uf, P, T_h, T_0, ae_path_model, offset):
+# PREPARE DATA FOR PI-CRNN
+def load_lstm_data(train_size, val_size, look_b, look_f, stride, Uf, P, T_h, T_0, offset):
     np.random.seed(1)
-    ae_encoder = build_ae_encoder(ae_path_model)
+    ae_encoder = build_ae_encoder()
     data_train, data_val, x, z, _ = load_data(train_size, val_size, Uf, P, T_h, T_0, offset)
     data_train = tf.convert_to_tensor(data_train)
     data_val = tf.convert_to_tensor(data_val)
@@ -280,18 +212,14 @@ def load_lstm_data(train_size, val_size, look_b, look_f, stride, Uf, P, T_h, T_0
     data_train_tf = create_dataset(train_starts, data_train)
     data_train_tf = data_train_tf.shuffle(buffer_size=seqs).batch(bsize).prefetch(tf.data.AUTOTUNE)
     
-    del data_train
     val_starts = np.random.choice(np.arange(look_b, val_size-look_f), size=20, replace=False)
     data_val_tf = create_dataset(val_starts, data_val)
     data_val_tf = data_val_tf.batch(1).prefetch(tf.data.AUTOTUNE)
     
-    del data_val
-    gc.collect()
-    
     return data_train_tf, data_val_tf, x, z
 
   
-
+# ESN MODEL DEFINITION
 @register_keras_serializable(package="Custom", name="EchoStateRNNCell")
 class EchoStateRNNCell(keras.layers.Layer):
   def __init__(self, units, decay=0.1, alpha=0.5, rho=1.0, sw=1.0, seed=None,
@@ -410,6 +338,7 @@ class EchoStateRNNCell(keras.layers.Layer):
     return cls(**config)
     
 
+# BUILD ESN
 def build_ae_ESN(nodes, kernel_size, activation, ae_path_model, look_back):
   nodes_dec = list(reversed(nodes))
           
@@ -442,26 +371,38 @@ def build_ae_ESN(nodes, kernel_size, activation, ae_path_model, look_back):
   return ae_esn   
     
 
+# HELPER FUNCTION FOR THE PI-ESN 
+def load_esn_data(train_size, val_size, look_b, batch_size, stride, Uf, P, T_h, T_0, ae_path_model, offset): 
+  
+  ae_encoder = build_ae_encoder()
+  data_train, data_val, x, z, _ = load_data(train_size, val_size, Uf, P, T_h, T_0, offset)  
+  data = np.concatenate((data_train, data_val), axis=0)
+  
+  @tf.function(input_signature=[tf.TensorSpec(shape=[1, look_b, 256, 256, 4], dtype=tf.float32)])
+    def compress_in(x):
+      return ae_encoder(x)  
+     
+  input_data, output_data = [], []
+  for t in range(look_b, train_size):
+    data_temp = data[(t-look_b):t,...]
+    input_temp = compress_in(tf.expand_dims(data_temp[::stride], axis=0))
+    input_data.append(input_temp[0]) 
+    output_data.append(data[t,...])
+  
+  input_data, output_data = np.array(input_data, np.float32), np.array(output_data, np.float32)   
+  data_train_tf = tf.data.Dataset.from_tensor_slices((input_data, output_data))                                 
+  data_train_tf = data_train_tf.batch(batch_size, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+  
+  input_data, output_data = [], []
+  for t in range(train_size+look_b, train_size+val_size):
+    data_temp = data[(t-look_b):t,...]
+    input_temp = compress_data(ae_encoder, np.expand_dims(data_temp[::stride], axis=0))
+    input_data.append(input_temp[0]) 
+    output_data.append(data[t,...])
 
-def build_lstm(nodes, kernel_size, activation, ae_path_model, look_back, look_fwd, dropout):
-  if look_fwd == 1:
-    return build_ae_lstm(nodes, kernel_size, activation, ae_path_model, look_back)
-  else:
-    return build_ae_seq2seq(nodes, kernel_size, activation, ae_path_model, look_back, look_fwd, dropout)    
+  input_data, output_data = np.array(input_data, np.float32), np.array(output_data, np.float32)   
+  data_val_tf = tf.data.Dataset.from_tensor_slices((input_data, output_data))                                 
+  data_val_tf = data_val_tf.batch(batch_size, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
-
- 
-def format_results(results_mse, results_uq):
-  u = f'{results_mse[0]:.2e} ({results_uq[0]:.2e})'
-  w = f'{results_mse[1]:.2e} ({results_uq[1]:.2e})'
-  mc = f'{results_mse[2]:.2e} ({results_uq[2]:.2e})'
-  T = f'{results_mse[3]:.2e} ({results_uq[3]:.2e})'
-  return u, w, mc, T   
-      
-            
-def print_gpu_memory_usage():
-  memory_info = tf.config.experimental.get_memory_info('GPU:0')
-  print(f"Current GPU Memory Usage: {memory_info['current'] / 1024**2:.2f} MB")
-  print(f"Peak GPU Memory Usage: {memory_info['peak'] / 1024**2:.2f} MB")     
-
+  return data_train_tf, data_val_tf, x, z
 
