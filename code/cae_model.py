@@ -38,7 +38,7 @@ min_lr = 0.0001
 const_dict = load_constants_long() #_long
 Uf, P, T_h, T_0, Pr, Ra = get_model_constants(const_dict)
 ae_train, ae_val, x, z = load_ae_data(train_size, val_size, batch_size, Uf, P, T_h, T_0, offset=2)
-print('\nData loaded')
+
 
 # LOSS FUNCTION (MSE)
 @tf.function(input_signature=[tf.TensorSpec(shape=[batch_size,256,256,4], dtype=tf.float32),
@@ -145,7 +145,7 @@ for epoch in range(epochs):
   val_loss.assign(tf.constant(0.))  
     
 train_time = time.time()
-autoencoder.save(os.getcwd() + f'/models/ae_{suffix}.keras', overwrite=True)
+autoencoder.save('ae.keras', overwrite=True)
 
 delta_train = train_time - start_time
 delta_train_hrs = int(delta_train // (60*60))
