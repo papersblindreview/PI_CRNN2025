@@ -171,7 +171,15 @@ def build_ae_encoder():
   x_enc = inputs
   for l in enc_layers: x_enc = TimeDistributed(l, name=l.name)(x_enc)
   return tf.keras.Model(inputs, x_enc, name='AE_Encoder')
-   
+
+# LOAD TRAINED SPATIAL DECODER 
+def get_ae_decoder():
+  _, dec_layers = get_ae_layers(ae_path_model)
+  inputs = Input(shape=(None,16,16,64), name='inputs')
+  x = inputs
+  for l in dec_layers: x = TimeDistributed(l, name=l.name)(x)
+  return tf.keras.Model(inputs, x, name='AE_Decoder')
+
 
 # PREPARE DATA FOR PI-CRNN
 def load_lstm_data(train_size, val_size, look_b, look_f, stride, Uf, P, T_h, T_0, offset):
