@@ -38,9 +38,9 @@ Uf, P, T_h, T_0, Pr, Ra = get_model_constants(const_dict)
 ############################################
 
 # CREATE CONTEXT BUILDER
-def get_context_builder(size, kernel_size, dropout):
+def get_context_builder(size, kernel_size):
   inputs = tf.keras.layers.Input(shape=(None, 16, 16, 64), name='Inputs')
-  _, h1, c1 = ConvLSTM2D(size, kernel_size=kernel_size, return_sequences=True, return_state=True, padding='same', name='ConvLSTM_CB')(inputs)
+  _, h1, c1 = ConvLSTM2D(size, kernel_size, return_sequences=True, return_state=True, padding='same', name='ConvLSTM_CB')(inputs)
   return tf.keras.Model(inputs, [h1, c1], name='ContextBuilder_Model')
 
 # CREATE SEQUENCE GENERATOR
@@ -78,16 +78,7 @@ class SequenceGenerator(tf.keras.Model):
     
   @classmethod
   def from_config(cls, config):
-    return cls(**config)
-
-# LOAD TRAINED SPATIAL DECODER (the input sequences are already reduced)
-def get_ae_decoder(ae_path_model=ae_path_model):
-  _, dec_layers = get_ae_layers(ae_path_model)
-  inputs = Input(shape=(None,16,16,64), name='inputs')
-  x = inputs
-  for l in dec_layers: x = TimeDistributed(l, name=l.name)(x)
-  return tf.keras.Model(inputs, x, name='AE_Decoder')
-  
+    return cls(**config)  
 
 tf.keras.utils.set_random_seed(1)
 
