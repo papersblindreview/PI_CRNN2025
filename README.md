@@ -7,3 +7,5 @@ There are three scripts:
 1) functions.py contains helper functions to load and preprocess the data
 2) cae_model.py contains code to run the CAE
 3) pi_crnn_model.py contains code to run the spatiotemporal model, conditional on the trained CAE
+
+To reproduce the results from the manuscript, a user should first run cae_model.py to train the CAE portion of the method and then run pi_crnn_model.py to train and produce forecasts for the proposed PI-CRNN approach.
