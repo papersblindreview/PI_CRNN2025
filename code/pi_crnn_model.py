@@ -38,9 +38,9 @@ Uf, P, T_h, T_0, Pr, Ra = get_model_constants(const_dict)
 ############################################
 
 # CREATE CONTEXT BUILDER
-def get_context_builder(size, kernel_size):
+def get_context_builder(hidden_size, kernel_size):
   inputs = tf.keras.layers.Input(shape=(None, 16, 16, 64), name='Inputs')
-  _, h1, c1 = ConvLSTM2D(size, kernel_size, return_sequences=True, return_state=True, padding='same', name='ConvLSTM_CB')(inputs)
+  _, h1, c1 = ConvLSTM2D(hidden_size, kernel_size, return_sequences=True, return_state=True, padding='same', name='ConvLSTM_CB')(inputs)
   return tf.keras.Model(inputs, [h1, c1], name='ContextBuilder_Model')
 
 # CREATE SEQUENCE GENERATOR
@@ -89,7 +89,7 @@ dx_np, dz_np, dt_np = get_grads(x, z, const_dict, Uf, offset)
 dx = tf.constant(dx_np, tf.float32)
 dz = tf.constant(dz_np, tf.float32)
 dt = tf.constant(np.array(dt_np).reshape(1,), tf.float32)
-print('Data loaded.\n')
+
 
 # HELPER FUNCTIONS TO COMPUTE DERIVATIVES
 @tf.function(input_signature=[tf.TensorSpec(shape=[bsize,look_fwd,256,256,4], dtype=tf.float32),
@@ -160,8 +160,8 @@ def loss_ns(U_true, U_pred):
 optimizer = tf.keras.optimizers.Adam(tf.constant(lstm_model_specs['lr']))
 
 
-context_builder = get_context_builder(nodes[0], kernel_size, dropout)
-sequence_generator = SequenceGenerator(hidden_size=nodes[0], kernel_size=kernel_size, dropout=dropout, out_size=64)
+context_builder = get_context_builder(hidden_size=96, kernel_size=3)
+sequence_generator = SequenceGenerator(hidden_size=96, kernel_size=3)
 ae_decoder = get_ae_decoder()
 ################################################################################################# 
 
