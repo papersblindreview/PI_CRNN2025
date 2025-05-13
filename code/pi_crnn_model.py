@@ -24,12 +24,6 @@ print(f'Number of GPUs: {len(gpus)}')
 for gpu in gpus:
   tf.config.experimental.set_memory_growth(gpu, True)
 
-# LOADING TRAINED CAE
-ae_path_model = os.getcwd() + '/ae_cv/models/ae.keras'
-with open(ae_path_model, 'rb') as f:
-  ae_model_specs = pickle.load(f)     
-
-
 # HYPERPARAMETERS
 epochs = 1500
 offset = 2
@@ -46,8 +40,8 @@ Uf, P, T_h, T_0, Pr, Ra = get_model_constants(const_dict)
 # CREATE CONTEXT BUILDER
 def get_context_builder(size, kernel_size, dropout):
   inputs = tf.keras.layers.Input(shape=(None, 16, 16, 64), name='Inputs')
-  _, h1, c1 = ConvLSTM2D(size, kernel_size=kernel_size, return_sequences=True, return_state=True, padding='same', name='Encoder1')(inputs)
-  return tf.keras.Model(inputs, [h1, c1], name='Encoder_Model')
+  _, h1, c1 = ConvLSTM2D(size, kernel_size=kernel_size, return_sequences=True, return_state=True, padding='same', name='ConvLSTM_CB')(inputs)
+  return tf.keras.Model(inputs, [h1, c1], name='ContextBuilder_Model')
 
 # CREATE SEQUENCE GENERATOR
 @keras.saving.register_keras_serializable()
@@ -56,10 +50,10 @@ class SequenceGenerator(tf.keras.Model):
     super(SequenceGenerator, self).__init__(name='SequenceGenerator_Model')
     self.hidden_size = hidden_size
     self.kernel_size = kernel_size
-    self.rnn = ConvLSTM2D(hidden_size, kernel_size, return_state=True, padding='same', name='Decoder')
-    self.conv = Conv2D(64, kernel_size=3, padding='same', name='ConvDecoder') 
-    self.norm = LayerNormalization(name='NormDecoder')
-    self.act = LeakyReLU(0.2, name='ReLUDecoder')
+    self.rnn = ConvLSTM2D(hidden_size, kernel_size, return_state=True, padding='same', name='ConvLSTM_SG')
+    self.conv = Conv2D(64, kernel_size=3, padding='same', name='Conv2D') 
+    self.norm = LayerNormalization(name='Norm')
+    self.act = LeakyReLU(0.2, name='ReLU')
     self.expand_dim = Lambda(lambda x: tf.expand_dims(x, axis=1))
     
   def call(self, inputs):
@@ -347,8 +341,8 @@ for epoch in tf.range(1, epochs, dtype=tf.float32):
     
   if (epoch+1) % 30 == 0:  
     print(log1+log2+log3)
-    context_builder.save(os.getcwd() + f'/models/context_builder.keras', overwrite=True)
-    sequence_generator.save_weights(os.getcwd() + f'/models/sequence_generator.weights.h5', overwrite=True)
+    context_builder.save('context_builder.keras', overwrite=True)
+    sequence_generator.save_weights('sequence_generator.weights.h5', overwrite=True)
 
 train_time = time.time()
 
